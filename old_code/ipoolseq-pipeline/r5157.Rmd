@@ -1,0 +1,61 @@
+---
+title: "Analysis of r5157 (Experiment B)"
+header-includes:
+  - \usepackage{pdflscape}
+  - \newcommand{\blandscape}{\newpage\begin{landscape}}
+  - \newcommand{\elandscape}{\end{landscape}\newpage}
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document: default
+---
+
+```{r, eval=FALSE, echo=FALSE}
+# r5157.Rmd, Copyright 2017 Florian G. Pflug
+# 
+# This file is part of the iPool-Seq Analysis Pipeline
+#
+# The iPool-Seq Analysis Pipeline is free software: you can redistribute it
+# and/or modify it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the License,
+# or (at your option) any later version.
+#
+# The iPool-Seq Analysis Pipeline is distributed in the hope that it will be
+# useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with the iPool-Seq Analysis Pipeline.  If not, see
+# <http://www.gnu.org/licenses/
+```
+
+```{r, results=FALSE, message=FALSE, echo=FALSE}
+SAMPLES <- list(
+	`in1` = list(folder='r5157.in1', input=NA),
+	`in2` = list(folder='r5157.in2', input=NA),
+	`in3` = list(folder='r5157.in3', input=NA),
+	`odr3r1` = list(folder='r5157.od3r1', input="in1", group="odr3"),
+	`odr3r2` = list(folder='r5157.od3r2', input="in2", group="odr3"),
+	`odr3r3` = list(folder='r5157.od3r3', input="in3", group="odr3")
+)
+```
+
+```{r, child="samples.Rmd"}
+```
+
+```{r, child="reads_per_umi.Rmd"}
+```
+
+```{r, child="flanks.Rmd"}
+```
+
+```{r, child="significance.Rmd"}
+```
+
+```{r, echo=FALSE}
+save(null.params, file="r5157.model.rda")
+write.csv(abundances[order(gene)], file="r5157.abundance.csv")
+write.csv(sig.low[order(gene)], file="r5157.low.csv")
+write.csv(sig.high[order(gene)], file="r5157.high.csv")
+```

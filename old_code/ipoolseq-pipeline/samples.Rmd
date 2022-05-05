@@ -1,0 +1,100 @@
+```{r, eval=FALSE, echo=FALSE}
+# samples.Rmd, Copyright 2017 Florian G. Pflug
+# 
+# This file is part of the iPool-Seq Analysis Pipeline
+#
+# The iPool-Seq Analysis Pipeline is free software: you can redistribute it
+# and/or modify it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the License,
+# or (at your option) any later version.
+#
+# The iPool-Seq Analysis Pipeline is distributed in the hope that it will be
+# useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with the iPool-Seq Analysis Pipeline.  If not, see
+# <http://www.gnu.org/licenses/
+```
+
+Overview
+========
+
+```{r, message=FALSE, warnings=FALSE, echo=FALSE}
+library(data.table)
+library(rtracklayer, quietly=TRUE)
+```
+
+```{r, results=FALSE, message=FALSE, echo=FALSE}
+SAMPLES.OUTPUT <- Filter(function(s) { !is.na(s$input) }, SAMPLES)
+
+STRAINS <- as.list(names(SAMPLES.OUTPUT))
+names(STRAINS) <- STRAINS
+
+GROUPS <- unique(unlist(lapply(SAMPLES, function (s) {s$group} )))
+
+# We originally started with the list
+# F.NULL <- c('UMAG_02193', 'UMAG_01297', 'UMAG_12313',
+#             'UMAG_03615', 'UMAG_02192', 'UMAG_03202',
+#             'UMAG_01302', 'UMAG_10403', 'UMAG_01300',
+#             'UMAG_10553', 'UMAG_06222', 'UMAG_03046')
+#
+# At some point, I excluded UMAG_03201 from the list because it looked
+# like it might not be neutral in replicates 2 and 3 of r4725.
+# 
+# Later, we checked for outliers more systematically, using
+# datasets (r4896.egb73r* and r5157.od3r*), and reduced the list to
+# F.NULL <- c('UMAG_01302', 'UMAG_02192', 'UMAG_02193', 'UMAG_03046',
+#             'UMAG_03202', 'UMAG_03615', 'UMAG_10403', 'UMAG_10553')
+#
+# And re-running the outlier check using the results obtained with
+# the neutral list above produced the following selection of neutral
+# knockouts
+F.NULL <- c("UMAG_02193", "UMAG_03202", "UMAG_01302", "UMAG_10403", "UMAG_10553")
+
+# False Discovery Rate Settings
+FDR <- 0.1
+FDR.METHOD <- "BH"
+
+data <- list()
+for(n in names(SAMPLES)) {
+  message("Loading ", SAMPLES[[n]]$folder, " as ", n)
+  local({
+    load(file=paste0("data/", SAMPLES[[n]]$folder, '/ngm.results.rda'))
+    load(file=paste0("data/", SAMPLES[[n]]$folder, '/ngm.stats.rda'))
+    SAMPLES[[n]] <<- c(SAMPLES[[n]], CFG)
+    data[[n]] <<- c(DATA, list(stats=STATS))
+  })
+}
+```
+
+```{r, results=FALSE, echo=FALSE}
+knockouts <- import.gff2('knockouts208.gff')
+knockouts <- knockouts[order(as.character(seqnames(knockouts)),
+                             as.numeric(start(knockouts))),]
+per.feature.prototype <- data.table(feature=as.vector(outer(knockouts$Name, c(':3p', ':5p'), 'paste0')))
+setkey(per.feature.prototype, feature)
+d <- per.feature.prototype[, gene := sub("^(.*):[35]p$", "\\1", feature) ]
+d <- per.feature.prototype[, flank := sub("^.*:([35]p)$", "\\1", feature) ]
+```
+
+```{r, echo=FALSE, results='asis'}
+for(n in names(SAMPLES)) {
+  s <- data[[n]]$stats
+  t <- rbind(`Fragments`=list(Count=s$frags.total, `%`=100),
+             `Valid Fragments`=list(Count=s$frags.trim, `%`=round(100*s$frags.trim/s$frags.total, digits=2)),
+             `Mapped Fragments`=list(Count=s$frags.mapped, `%`=round(100*s$frags.mapped/s$frags.total, digits=2)),
+             `Unassigned Fragments (no KO)`=list(Count=s$frags.unassigned, `%`=round(100*s$frags.unassigned/s$frags.total, digits=2)),
+             `Unassigned Fragments (ambiguous KO)`=list(Count=s$frags.ambiguous, `%`=round(100*s$frags.ambiguous/s$frags.total, digits=2)),
+             `Assigned Fragments`=list(Count=s$frags.assigned, `%`=round(100*s$frags.assigned/s$frags.total, digits=2)),
+             `True UMI Fragments`=list(Count=s$frags.trueumi, `%`=round(100*s$frags.trueumi/s$frags.total, digits=2)))
+  colnames(t) <- c(n, "%")
+  u <- rbind(`Raw UMIs`=list(Count=s$umis.raw, `%`=100),
+             `Clustered UMIs`=list(Count=s$umis.clustered, `%`=round(100*s$umis.clustered/s$umis.raw, digits=2)),
+             `True UMIs`=list(Count=s$umis.filtered, `%`=round(100*s$umis.filtered/s$umis.raw, digits=2)))
+  colnames(u) <- c(n, "%")
+  print(knitr::kable(t))
+  print(knitr::kable(u))
+}
+```

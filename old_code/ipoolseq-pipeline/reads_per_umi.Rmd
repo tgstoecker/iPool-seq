@@ -1,0 +1,73 @@
+```{r, eval=FALSE, echo=FALSE}
+# reads_per_umi.Rmd, Copyright 2017 Florian G. Pflug
+# 
+# This file is part of the iPool-Seq Analysis Pipeline
+#
+# The iPool-Seq Analysis Pipeline is free software: you can redistribute it
+# and/or modify it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the License,
+# or (at your option) any later version.
+#
+# The iPool-Seq Analysis Pipeline is distributed in the hope that it will be
+# useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with the iPool-Seq Analysis Pipeline.  If not, see
+# <http://www.gnu.org/licenses/
+```
+
+Reads/UMI
+=========
+
+```{r, message=FALSE, warnings=FALSE, echo=FALSE}
+library(data.table)
+library(gwpcR)
+library(parallel)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+plot.counts.hist <- function(counts, model, title, binsize=1, ...) {
+  counts.filt <- counts[counts >= model$threshold]
+  
+  breaks <- seq(from=0, by=binsize, length=ceiling((max(counts.filt)+binsize)/binsize))
+  h <- hist(counts.filt, right=FALSE, breaks=breaks, plot=FALSE)
+  p <- (diff(pgwpcrpois(h$breaks - 1, molecules=model$molecules, threshold=0,
+                        efficiency = model$efficiency,
+                        lambda0 = model$lambda0)) * length(counts.filt) /
+          (1 - pgwpcrpois(model$threshold-1, molecules=model$molecules, threshold=0,
+                          efficiency = model$efficiency,
+                          lambda0 = model$lambda0)))
+  plot(h, freq = TRUE, ylim=c(0, max(h$counts, p)*1.5), ...)
+  hist(counts[counts < model$threshold], add=TRUE, breaks=breaks, right=FALSE, border="darkgrey")
+  abline(v=model$threshold, lwd=3)
+  points(h$mids, p, pch=16)
+  
+  text(0.9*par("usr")[2], 0.9*par("usr")[4], adj=c(1,1),
+       bquote(atop(.(title),
+                   atop(list(E==.(paste0(round(100*model$efficiency), "%")),
+                             lambda[0]==.(round(model$lambda0, digits=3))),
+                        p[0]==.(paste0(round(100*model$p0, digits=2), "%"))))),
+       cex=1.2)
+}
+
+layout(rbind(matrix(1:length(SAMPLES), ncol=3, byrow=TRUE), (length(data)+1):(length(data)+3)),
+       heights=c(rep(1, ceiling(length(data)/3)), lcm(1.5)))
+
+
+xmax <- quantile(unlist(lapply(data, function(d) { d$umifreqs })), prob=0.995)
+
+for(n in names(SAMPLES)) {
+  par(mar=c(0.5,0.5,0,0))
+  c <- unlist(data[[n]]$umifreqs)
+  plot.counts.hist(c, data[[n]]$global, title=n, xlim=c(0,xmax), main=NA, xaxt='n', yaxt='n')
+}
+for(i in 1:3) {
+  par(mar=c(3,0,0,0))
+  plot.new()
+  plot.window(xlim=c(0,xmax), ylim=c(0,1))
+  axis(side=1)
+  mtext(side=1, line=2, "reads / UMI")
+}
+```

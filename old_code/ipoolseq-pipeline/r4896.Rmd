@@ -1,0 +1,61 @@
+---
+title: "Analysis of r4896 (Experiment A)"
+header-includes:
+  - \usepackage{pdflscape}
+  - \newcommand{\blandscape}{\newpage\begin{landscape}}
+  - \newcommand{\elandscape}{\end{landscape}\newpage}
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document: default
+---
+
+```{r, eval=FALSE, echo=FALSE}
+# r4896.Rmd, Copyright 2017 Florian G. Pflug
+# 
+# This file is part of the iPool-Seq Analysis Pipeline
+#
+# The iPool-Seq Analysis Pipeline is free software: you can redistribute it
+# and/or modify it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the License,
+# or (at your option) any later version.
+#
+# The iPool-Seq Analysis Pipeline is distributed in the hope that it will be
+# useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with the iPool-Seq Analysis Pipeline.  If not, see
+# <http://www.gnu.org/licenses/
+```
+
+```{r, results=FALSE, message=FALSE, echo=FALSE}
+SAMPLES <- list(
+	`in1` = list(folder='r4896.in1', input=NA),
+	`in2` = list(folder='r4896.in2', input=NA),
+	`in3` = list(folder='r4896.in3', input=NA),
+	`egb73r1` = list(folder='r4896.egb73r1', input="in1", group="egb73"),
+	`egb73r2` = list(folder='r4896.egb73r2', input="in2", group="egb73"),
+	`egb73r3` = list(folder='r4896.egb73r3', input="in3", group="egb73")
+)
+```
+
+```{r, child="samples.Rmd"}
+```
+
+```{r, child="reads_per_umi.Rmd"}
+```
+
+```{r, child="flanks.Rmd"}
+```
+
+```{r, child="significance.Rmd"}
+```
+
+```{r, echo=FALSE}
+save(null.params, file="r4896.model.rda")
+write.csv(abundances[order(gene)], file="r4896.abundance.csv")
+write.csv(sig.low[order(gene)], file="r4896.low.csv")
+write.csv(sig.high[order(gene)], file="r4896.high.csv")
+```

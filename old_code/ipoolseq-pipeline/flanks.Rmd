@@ -1,0 +1,59 @@
+```{r, eval=FALSE, echo=FALSE}
+# flanks.Rmd, Copyright 2017 Florian G. Pflug
+# 
+# This file is part of the iPool-Seq Analysis Pipeline
+#
+# The iPool-Seq Analysis Pipeline is free software: you can redistribute it
+# and/or modify it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the License,
+# or (at your option) any later version.
+#
+# The iPool-Seq Analysis Pipeline is distributed in the hope that it will be
+# useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with the iPool-Seq Analysis Pipeline.  If not, see
+# <http://www.gnu.org/licenses/
+```
+
+Correlation between 5' and 3' Fragment Abundances
+=================================================
+
+```{r, results=FALSE, echo=FALSE}
+layout(matrix(1:length(SAMPLES), ncol=3, byrow=TRUE))
+
+
+flank.corr <- data.table(sample=names(SAMPLES))
+setkey(flank.corr, sample)
+for(n in names(SAMPLES)) {
+    uc <- data[[n]]$umicounts[, list(gene=strsplit(as.character(feature), ':')[[1]][1],
+                                     flank=strsplit(as.character(feature), ':')[[1]][2],
+                                     n=n.tot, n.raw=n.umis)
+                              , by='feature']
+    uc <- uc[, list(n3p=n[flank=='3p'],
+                    n5p=n[flank=='5p'],
+                    n3p.raw=n.raw[flank=='3p'],
+                    n5p.raw=n.raw[flank=='5p'])
+             , by='gene']
+    uc <- uc[!(gene %in% c("unmatched", "ambiguous"))]
+
+    par(mar=c(2,2,0.5,0.5))
+    plot(ifelse(uc$n5p > 0, uc$n5p, 0.9),
+         ifelse(uc$n3p > 0, uc$n3p, 0.9),
+         pch=ifelse(uc$n5p * 1.0 * uc$n3p > 0, 1, 4),
+         xlim=c(1,  max(uc$n5p, na.rm=TRUE)),
+         ylim=c(1, max(uc$n3p, na.rm=TRUE)),
+         xlab=NA, ylab=NA, log='xy')
+    text(1, max(uc$n3p, na.rm=TRUE), adj=c(0,1), as.character(n))
+
+    flank.corr[list(n), Correlation := uc[, cor(n3p, n5p, use="complete.obs")]]
+    flank.corr[list(n), `Correlation (Uncorrected)` := uc[, cor(n3p.raw, n5p.raw, use="complete.obs")]]
+}
+```
+
+```{r, echo=FALSE}
+knitr::kable(flank.corr)
+```
+

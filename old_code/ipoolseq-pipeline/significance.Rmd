@@ -1,0 +1,249 @@
+```{r, eval=FALSE, echo=FALSE}
+# sgnificance.Rmd, Copyright 2017 Florian G. Pflug
+# 
+# This file is part of the iPool-Seq Analysis Pipeline
+#
+# The iPool-Seq Analysis Pipeline is free software: you can redistribute it
+# and/or modify it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the License,
+# or (at your option) any later version.
+#
+# The iPool-Seq Analysis Pipeline is distributed in the hope that it will be
+# useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with the iPool-Seq Analysis Pipeline.  If not, see
+# <http://www.gnu.org/licenses/
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+library(data.table)
+source("model.R")
+```
+
+```{r, results=FALSE, echo=FALSE}
+# Collect per-feature (i.e. 5' and 3' flank of gene gene) raw UMI counts (<sample>.raw), abundance
+# estimates (<sample>, these are the raw counts corrected for lost molecules) and the correction
+# factor (<sample>.c, this is <sample> / <sample>.raw)
+abundances.perflank <- copy(per.feature.prototype)
+for(n in names(SAMPLES)) {
+  abundances.perflank[, paste0(n) := as.numeric(NA) ]
+  abundances.perflank[, paste0(n, ".raw") := as.integer(NA) ]
+  abundances.perflank[, paste0(n, ".c") := as.numeric(NA) ]
+  abundances.perflank[data[[n]]$umicounts, paste0(n) := as.numeric(n.tot) ]
+  abundances.perflank[data[[n]]$umicounts, paste0(n, ".raw") := as.integer(n.umis) ]
+  abundances.perflank[data[[n]]$umicounts, paste0(n, ".c") := as.numeric(1 / (1 - loss)) ]
+}
+
+zero.to.na <- function(v) {
+  ifelse(v > 0, v, NA)
+}
+
+# Combine per-flank counts into per-gene counts. We add the raw counts, and compute a
+# combined correction factor of
+#                1
+#   -----------------------------, 
+#    1/f1 + 1/f2 + ... + 1/fn
+# see theory for details. We also average the corrected abundance estimates. Note that
+# for the statistical testing below, we only use the combined raw count and combined
+# correction factor.
+abundances <- abundances.perflank[, {
+  do.call("c", lapply(as.list(names(SAMPLES)), function(n) {
+    raw <- eval(as.name(paste0(n, ".raw")))
+    r <- list()
+    if (all(is.na(raw) | !is.finite(raw) | (raw == 0))) {
+      r[[n]] <- as.numeric(NA)
+      r[[paste0(n, ".raw")]] <- as.integer(0)
+      r[[paste0(n, ".c")]] <- as.numeric(NA)
+    } else {
+      nz <- is.finite(raw) & (raw > 0)
+      r[[n]] <- mean(eval(as.name(paste0(n)))[nz])
+      r[[paste0(n, ".raw")]] <- as.integer(sum(raw[nz]))
+      c <- eval(as.name(paste0(n, ".c")))
+      r[[paste0(n, ".c")]] <- 1 / sum(1 / ifelse(is.finite(c[nz]) & (c[nz] > 0), c[nz], 1))
+    }
+    r
+  }))
+}, keyby=c("gene") ]
+
+# Mark reference genes
+d <- abundances[, is.neutral := gene %in% F.NULL ]
+
+# Estimate between-neutral-knockout variance (disp) and global input-vs-output
+# scaling factor (scale)
+null.params <-  abundances[is.neutral == TRUE, {
+    unlist(lapply(STRAINS, function(s) {
+      a <- eval(as.name(paste0(s, ".raw")))
+      b <- eval(as.name(paste0(SAMPLES[[s]]$input, ".raw")))
+      f <- eval(as.name(paste0(s, ".c")))
+      g <- eval(as.name(paste0(SAMPLES[[s]]$input, ".c")))
+      v <- (a > 0) & (b > 0)
+      model.fit(a=a[v], b=b[v], f=f[v], g=g[v])
+    }))
+  } ]
+
+# For each sample, compute
+#   * The fold-change relative to the neutral gene average (<sample>.fc)
+#   * A p-value for the significance of *depletion* in the output (<sample>.low.pval)
+#   * A p-value for the significance of *enrichment* in the output (<sample>.high.pval)
+#   * Q-values (i.e. BH-corrected p-values) (<sample>.low.qval, <sample>.low.qval)
+for(n in names(SAMPLES.OUTPUT)) {
+  abundances[is.finite(eval(as.name(n))) & is.finite(eval(as.name(SAMPLES[[n]]$input))),
+            paste0(n, ".log2fc") := log2(eval(as.name(n)) / (null.params[paste0(n, ".scale")] * eval(as.name(SAMPLES[[n]]$input)))) ]
+  abundances[(eval(as.name(paste0(n, ".raw"))) == 0) & is.finite(eval(as.name(SAMPLES[[n]]$input))),
+            paste0(n, ".log2fc") := -Inf ]
+  
+  abundances[is.finite(eval(as.name(n))) & is.finite(eval(as.name(SAMPLES[[n]]$input))),
+            paste0(n, ".low.pval") := pmodel(a=eval(as.name(paste0(n, ".raw"))),
+                                             scale=null.params[paste0(n, ".scale")],
+                                             disp=null.params[paste0(n, ".disp")],
+                                             b=eval(as.name(paste0(SAMPLES[[n]]$input, ".raw"))),
+                                             f=eval(as.name(paste0(n, ".c"))),
+                                             g=eval(as.name(paste0(SAMPLES[[n]]$input, ".c")))) ]
+  abundances[is.finite(eval(as.name(n))) & is.finite(eval(as.name(SAMPLES[[n]]$input))),
+            paste0(n, ".low.qval") := p.adjust(eval(as.name(paste0(n, ".low.pval"))), method=FDR.METHOD) ]
+  
+  abundances[is.finite(eval(as.name(n))) & is.finite(eval(as.name(SAMPLES[[n]]$input))),
+            paste0(n, ".high.pval") := 1 - pmodel(a=eval(as.name(paste0(n, ".raw")))-1,
+                                                  scale=null.params[paste0(n, ".scale")],
+                                                  disp=null.params[paste0(n, ".disp")],
+                                                  b=eval(as.name(paste0(SAMPLES[[n]]$input, ".raw"))),
+                                                  f=eval(as.name(paste0(n, ".c"))),
+                                                  g=eval(as.name(paste0(SAMPLES[[n]]$input, ".c")))) ]
+  abundances[is.finite(eval(as.name(n))) & is.finite(eval(as.name(SAMPLES[[n]]$input))),
+            paste0(n, ".high.qval") := p.adjust(eval(as.name(paste0(n, ".high.pval"))), method=FDR.METHOD) ]
+}
+
+# Create tables showing significance status of each gene -- one table for significant
+# depletion (sig.low) and one for significant enrichment (sig.high)
+
+sig.table <- function(qval.colext) {
+  t <- data.table(gene=abundances$gene)
+  setkey(t, gene)
+  
+  for(n in STRAINS) {
+    log2fc <- abundances[t, paste0(n, ".log2fc"), with=FALSE][[1]]
+    t[, paste0(n, ".log2fc") := log2fc ]
+  
+    q <- abundances[t, paste0(n, qval.colext), with=FALSE][[1]]
+    t[, paste0(n, '.qval') := q ]
+  
+    i <- abundances[t, paste0(SAMPLES[[n]]$input), with=FALSE][[1]]
+    s  <- ifelse(!is.na(i), ifelse(!is.na(q), ifelse(q <= FDR, '!', '-'), '0'), '?')
+    t[, paste0(n) := s ]
+  }
+  
+  for(g in GROUPS) {
+    s <- names(Filter(function(s) { !is.null(s$group) && (s$group == g) }, SAMPLES))
+    t[, paste0(g, ".n.sig") := t[, Reduce(`+`, lapply(s, function (n) { as.numeric(eval(as.name(n)) == "!") })) ] ]
+    t[, paste0(g, ".n.sig.or.zero") := t[, Reduce(`+`, lapply(s, function (n) { as.numeric(eval(as.name(n)) %in% c("!", "0")) })) ] ]
+  }
+
+  t[, n.sig := t[, Reduce(`+`, lapply(STRAINS, function (n) { as.numeric(eval(as.name(n)) == "!") })) ] ]
+  t[, n.sig.or.zero := t[, Reduce(`+`, lapply(STRAINS, function (n) { as.numeric(eval(as.name(n)) %in% c("!", "0")) })) ] ]
+  t[, n.dash := t[, Reduce(`+`, lapply(STRAINS, function (n) { as.numeric(eval(as.name(n)) == "-") })) ] ]
+
+  t
+}
+
+sig.low <- sig.table(".low.qval")
+
+sig.high <- sig.table(".high.qval")
+d <- sig.high[, n.sig.or.zero := NULL ]
+```
+
+Log Fold Change
+===============
+
+```{r, echo=FALSE, fig.height=3, fig.width=9}
+  layout(matrix(1:length(SAMPLES.OUTPUT), ncol=3, byrow=TRUE))
+
+  for(n in names(SAMPLES.OUTPUT)) {
+    x.expr <- as.name(SAMPLES[[n]]$input)
+    y.exp <- as.name(n)
+    scale <- null.params[paste0(n, ".scale")]
+    sh <- sig.high[eval(as.name(n)) == '!', gene]
+    sl <- sig.low[eval(as.name(n)) == '!', gene]
+    
+    t <- abundances[order((is.neutral == TRUE) | (gene %in% sh) | (gene %in% sl)),
+                   list(is.n=is.neutral,
+                        x=eval(x.expr),
+                        y=eval(y.exp),
+                        x.c=eval(as.name(paste0(SAMPLES[[n]]$input, ".c"))),
+                        y.c=eval(as.name(paste0(n, ".c"))),
+                        log2fc=eval(as.name(paste0(n, ".log2fc")))),
+                   by="gene"]
+    log2fc.range <- max(abs(range(t$log2fc[is.finite(t$log2fc)])))
+
+    # The quantile functions is R seemed to be defined as
+    #   Q(p) = min { x | P(X <= x) >= p }
+    # To find the lower significance threshold, we need
+    #   L = max { x | P(X <= x) < alpha }
+    #     = Q(alpha) - 1
+    # For the higher significance threshold, we need
+    #   H = min { x | P(X >= x) < alpha }
+    #     = min { X | P(X <= x-1) >= 1 - alpha
+    #     = Q(1 - alpha) + 1
+    # We determine the outline of the non-significant region
+    f <- max(t$y.c, na.rm=TRUE)
+    g <-  max(t$x.c, na.rm=TRUE)
+    b.true <- exp(seq(from=min(log(min(t$x, 1, na.rm=TRUE)), na.rm=TRUE), to=max(log(2*t$x), na.rm=TRUE), length.out=50))
+    a.sig.low <- qmodel(rep(FDR, along.with=b.true),
+                        scale=null.params[paste0(n, ".scale")],
+                        disp=null.params[paste0(n, ".disp")],
+                        b=b.true/g, f=rep(f, along.with=b.true), g=rep(g, along.with=b.true)) - 1
+    log2fc.sig.low <- log2(pmax(a.sig.low * f / (b.true * scale), 0))
+    a.sig.high <- qmodel(rep(1-FDR, along.with=b.true),
+                         scale=null.params[paste0(n, ".scale")],
+                         disp=null.params[paste0(n, ".disp")],
+                         b=b.true/g, f=rep(f, along.with=b.true), g=rep(g, along.with=b.true)) + 1
+    log2fc.sig.high <- log2(a.sig.high * f / (b.true * scale))
+    x.outline <- c(b.true, b.true[length(b.true)], rev(b.true), 1)
+    log2fc.outline <- c(cummax(pmax(log2fc.sig.low, -2*log2fc.range)), 0, cummax(rev(log2fc.sig.high)), 0)
+
+    # Create plot
+    par(mar=c(4,4,1,1))
+    plot.new()
+    plot.window(xlim=c(1, max(t$x, na.rm=TRUE)), ylim=c(-log2fc.range,log2fc.range), log="x")
+    
+    # Plot region
+    polygon(x.outline, log2fc.outline, border=NA, col="lightgrey")
+    
+    # Draw annotations
+    Axis(side=1)
+    Axis(side=2)
+    box()
+    title(xlab=SAMPLES[[n]]$input, ylab=expression(log[2]("norm. output fold change")))
+    
+    # Plot points
+    t[, points(ifelse(x == 0, 0.9, x), ifelse(y == 0, -log2fc.range, log2fc),
+               pch=ifelse((x == 0) | (y == 0), 4, 1),
+               col=ifelse(is.n, "darkgreen",
+                          ifelse(gene %in% sl, "red",
+                                 ifelse(gene %in% sh, "blue", "darkgrey")))) ]
+    
+    # Label plot
+    text(max(t$x, na.rm=TRUE), log2fc.range, adj=c(1,1), n)
+  }
+```
+
+Results
+=======
+
+The table shows the normalized input/output qoutients, the corresponding q-Value (BH-adjusted p-Value) for the significance of *depletion* or *enrichment*, and whether its significant at the chosen FDR. '?' means the knockout could not be detected in the input. '!' means the knockout is either significantly depleted or enriched (at false discovery rate `r FDR`). '-' means the knockout is not significantly depleted. '0' means the knockout was not detected in the output (but was detected in the input). '0' is only used in the table of significantly depleted knockouts. The table shows only knockouts that are either '!', '0' or '?' in out of the samples.
+
+### Significantly depleted knockouts
+
+```{r, echo=FALSE}
+knitr::kable(sig.low[n.dash < length(SAMPLES.OUTPUT), ][order(n.sig.or.zero, decreasing=TRUE), ]
+                    [, c("gene", names(SAMPLES.OUTPUT)), with=FALSE])
+```
+
+### Significantly enriched knockouts
+
+```{r, echo=FALSE}
+knitr::kable(sig.high[n.dash < length(SAMPLES.OUTPUT), ][order(n.sig, decreasing=TRUE), ]
+                     [, c("gene", names(SAMPLES.OUTPUT)), with=FALSE])
+```
