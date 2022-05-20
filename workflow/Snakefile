@@ -1,0 +1,24 @@
+from snakemake.utils import min_version
+
+min_version("6.3.0")
+
+import pandas as pd
+import yaml
+import os.path
+from os import path
+
+configfile: "config/config.yaml"
+
+PAIRED=config["PAIRED"]
+
+include: "rules/common.smk"
+include: "rules/trimming.smk"
+include: "rules/alignment.smk"
+include: "rules/bam_validation.smk"
+
+rule all:
+    input:
+        expand("results/read_through_removal/{sample}_{paired}.fq.gz", sample=SAMPLES, paired=PAIRED),
+        expand("results/UMIex_tech_seq_removal/{sample}_{paired}.fq.gz", sample=SAMPLES, paired=PAIRED),
+        expand("results/alignment/{sample}.bam", sample=SAMPLES),
+        expand("results/bam_validation/{sample}.invalid.txt", sample=SAMPLES),

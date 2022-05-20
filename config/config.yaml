@@ -1,0 +1,15 @@
+#for now, we expect PE input data ;D
+PAIRED: ['1', '2']
+
+
+#provide path to reference fasta of organism
+FASTA: "resources/ref.fasta"
+
+
+#Read Through Removal
+#ILLUMINA_SEED_MISS: 2
+#ILLUMINA_PALIND_THRESH: 24
+#ILLUMINA_SIMPLE_THRESH: 15
+#ILLUMINA_PALIND_MINLEN: 1
+#ILLUMINA_PALIND_NOCOMB: true
+RTA_trimmer: ["ILLUMINACLIP:config/adapters.fa:2:24:15:1:true MINLEN:40"]
