@@ -5,3 +5,5 @@ With this repo we intend to generalize the approach and offer easy modification 
 
 
 Current status: just beginning ;D
+
+![Alt text](./rulegraph.svg)
